@@ -46,7 +46,49 @@ def get_tuning_masks(layer_rlist, fmaps_count):
         tm[rl] = True
         tuning_masks += [tm,]
     return tuning_masks
-    
+
+
+def analyse_net(net, quiet=False):
+    module_dict = {}
+    module_count = 0
+    for name, module in net.named_children():
+        if len(list(module.children())):
+            for m in module.children():
+                module_dict[module_count] = m
+                module_count += 1
+        elif name=='avgpool':
+            module_dict[module_count] = module
+            module_dict[module_count+1] = nn.Flatten(1)
+            module_count += 2               
+        else:
+            module_dict[module_count] = module
+            module_count += 1
+    if not quiet:
+        for k,m in module_dict.items():
+            print (k, m)
+    return module_dict
+
+class fmapper(nn.Module):
+    def __init__(self, module_list, output_indices, mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]):
+        super().__init__()
+        self.output_indices = output_indices
+        self.mean = nn.Parameter(torch.as_tensor(mean), requires_grad=False)
+        self.std = nn.Parameter(torch.as_tensor(std), requires_grad=False)
+        self.features = []
+        pre = 0
+        for j,k in enumerate(output_indices):
+            self.features.append(nn.Sequential(*[module_list[i] for i in range(pre, k+1)]))
+            pre = k+1
+            #print (j, ': ', module_list[k])
+        
+    def forward(self, x):
+        fmaps = []
+        x = (x - self.mean[None, :, None, None])/self.std[None, :, None, None]
+        for f in self.features:
+            x = f(x)
+            fmaps += [x[:, :, None, None] if len(x.size())==2 else x,]
+        return fmaps
+
     
 def filter_dnn_feature_maps(data, _fmaps_fn, batch_size, fmap_max=1024, concatenate=True, trn_size=None):
     '''Runs over the image set and keep the fmap_max features with the most variance withing each layer of the network.
