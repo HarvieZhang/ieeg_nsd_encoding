@@ -9,12 +9,13 @@ import scipy.io
 import argparse
 import glob
 import re
+import pickle
 from PIL import Image
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
 
-from models.alexnet_layerwiseFWRF_eeg import EEGPredictor
+from models.eeg_predictor import alexnet_layerwiseFWRF_eeg
 
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -105,7 +106,7 @@ def get_coordinates(i, width):
     y_axis = i % width
     return x_axis, y_axis
 
-def main(img_folder, mat_folder, model_path, train_size_ratio, batch_size, num_epochs, learning_rate):
+def main(img_folder, mat_folder, model_folder, writer_folder,train_size_ratio, batch_size, num_epochs, learning_rate):
     
     train_dataset, val_dataset, target_shape = create_datasets(img_folder, mat_folder, train_size_ratio)
     target_shape_size = target_shape[0]*target_shape[1]
@@ -123,23 +124,27 @@ def main(img_folder, mat_folder, model_path, train_size_ratio, batch_size, num_e
 
     print(">All data loaded")
 
+    # Initialize the dictionary to store the best correlation coefficient for each i with its coordinate
+    best_corrs = {}
+
     # Train a model for each position
-    for i in range(target_shape_size):
+    for i in range(0, target_shape_size):
         # Set up TensorBoard writer
-        writer = SummaryWriter(f'runs/{i}_model')  # 'runs' is a common directory name for TensorBoard logs
+        if i%100 == 0:
+            writer = SummaryWriter(os.path.join(writer_folder,f'{i}_model'))  # 'runs' is a common directory name for TensorBoard logs
 
         #Each pixel in spetrum as a target
         position_targets = all_targets_train[:, i]
         position_dataset = [(train_dataset[idx][0], position_targets[idx]) for idx in range(len(train_dataset))]
         train_loader_position = DataLoader(position_dataset, batch_size=batch_size, shuffle=True)
 
-        position_targets_val = all_targets_train[:, i]
+        position_targets_val = all_targets_val[:, i]
         position_dataset_val = [(val_dataset[idx][0], position_targets_val[idx]) for idx in range(len(val_dataset))]
         val_loader_position = DataLoader(position_dataset_val, batch_size=batch_size, shuffle=False)
-        print(">>>pixel data loaded")
+        #print(">>>pixel data loaded")
 
         #Initialize training
-        model = EEGPredictor(device)
+        model = alexnet_layerwiseFWRF_eeg(device)
         model = model.to(device)
         print(">>>>>>Model loaded")
         # Dummy forward pass to initialize the readout layer
@@ -149,13 +154,14 @@ def main(img_folder, mat_folder, model_path, train_size_ratio, batch_size, num_e
         # Now initialize the optimizer
         optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=learning_rate)
         criterion = nn.MSELoss()
+        best_corr_coeff = float('-inf')
 
-        for epoch in range(num_epochs):
+        for epoch in tqdm(range(num_epochs), desc="Epochs"):
             #training loop
             model.train()
             total_train_loss = 0
             correlations = []
-            for batch_images, batch_labels in tqdm(train_loader_position, desc="Training"):
+            for batch_images, batch_labels in train_loader_position:
                 #images = images.view(images.size(0), -1)
                 # Move data to GPU if available
                 batch_images, batch_labels = batch_images.to(device), batch_labels.to(device)
@@ -176,17 +182,20 @@ def main(img_folder, mat_folder, model_path, train_size_ratio, batch_size, num_e
                 correlations.append(corr.item())
 
             avg_train_loss = total_train_loss / len(train_loader_position)
-            avg_corr = sum(correlations) / len(correlations)
-            print(f"Epoch [{epoch+1}/{num_epochs}], Training Loss: {avg_train_loss:.4f}, Avg Correlation: {avg_corr:.4f}")
-            writer.add_scalar('Training Loss', avg_train_loss, epoch)
-            #writer.add_scalar('Avg training Correlation', avg_corr, epoch)
+            train_avg_corr = sum(correlations) / len(correlations)
+            #print(f"Epoch [{epoch+1}/{num_epochs}], Training Loss: {avg_train_loss:.4f}, Avg Correlation: {avg_corr:.4f}")
+
+            if i%100 == 0:
+                writer.add_scalar('Training Loss', avg_train_loss, epoch)
+                writer.add_scalar('Avg training Correlation', train_avg_corr, epoch)
             
              # Validation Loop
             model.eval()
             total_val_loss = 0
-            correlations = []
+            all_predictions = []
+            all_labels = []
             with torch.no_grad():
-                for batch_images, batch_labels in tqdm(val_loader_position, desc="Validation"):
+                for batch_images, batch_labels in val_loader_position:
                     # Move data to GPU if available
                     batch_images, batch_labels = batch_images.to(device), batch_labels.to(device)
                     
@@ -195,33 +204,52 @@ def main(img_folder, mat_folder, model_path, train_size_ratio, batch_size, num_e
                     total_val_loss += loss.item()
 
                     # Compute correlation for the current batch and store
-                    corr = pearson_correlation_coefficient(predictions.squeeze(), batch_labels.squeeze())
-                    correlations.append(corr.item())
+                    #corr = pearson_correlation_coefficient(predictions.squeeze(), batch_labels.squeeze())
+                    #correlations.append(corr.item())
+                    all_predictions.extend(predictions.squeeze().tolist())
+                    all_labels.extend(batch_labels.squeeze().tolist())
             
             avg_val_loss = total_val_loss / len(val_loader_position)
-            avg_corr = sum(correlations) / len(correlations)
+            avg_corr = pearson_correlation_coefficient(torch.tensor(all_predictions), torch.tensor(all_labels))
             print(f"Position [{i + 1}/{target_shape_size}],Epoch [{epoch+1}/{num_epochs}], Validation Loss: {avg_val_loss:.4f}, Avg Correlation: {avg_corr:.4f}")
-            writer.add_scalar('Validation Loss', avg_val_loss, epoch)
-            #writer.add_scalar('Avg Validaton Correlation', avg_corr, epoch)
+            
+            if i%100 == 0:
+                writer.add_scalar('Validation Loss', avg_val_loss, epoch)
+                writer.add_scalar('Avg Validaton Correlation', avg_corr, epoch)
+                writer.close
+            if avg_corr > best_corr_coeff:
+                best_corr_coeff = avg_corr
+                torch.save(model.state_dict(), os.path.join(model_folder, f"{i}_best.pth"))
+                #print("Saved best model with correlation coefficient:", best_corr_coeff)
 
-        writer.close
-        print(f"Position [{i + 1}/{target_shape_size}] training completed.")
 
-        # Optionally save model
-        # torch.save(model.state_dict(), model_path+f"model_{i}.pth")
+        x_axis, y_axis = get_coordinates(i, target_shape[1])
+        print(f"Position [{i + 1}/{target_shape_size}], Coordinates: ({x_axis},{y_axis}), Avg Training Correlation: {train_avg_corr:.4f}, Avg Validation Correlation: {avg_corr:.4f}")
+        # Save the final model
+        torch.save(model.state_dict(), os.path.join(model_folder, f"{i}_final.pth"))
+        #print("Saved model from the final epoch.")
+
+        #Save best_corrs with pixel coordinates
+        best_corrs[i] = {
+            "corr": best_corr_coeff,
+            "coordinate": (x_axis, y_axis)  
+        }
+        if (i+1)%500==0:
+            with open("./best_corrs_avg.pkl", "wb") as f:
+                pickle.dump(best_corrs, f)
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('--img_folder', type=str, default="/root/data/ieeg_nsd/shared1000",help='Path to the folder containing images')
-    parser.add_argument('--mat_folder', type=str, default="/root/data/ieeg_nsd/wavelet_NSD1000_LTP3LTP4",help='Path to the folder containing wavelet files')
-    parser.add_argument('--model_folder', type=str, default="/root/workspace/ieeg_nsd_models/")
-    parser.add_argument('--writer_folder', type=str, default="./run")
+    parser.add_argument('--img_folder', type=str, default="/root/fdata/ieeg_nsd/shared1000",help='Path to the folder containing images')
+    parser.add_argument('--mat_folder', type=str, default="/root/fdata/ieeg_nsd/wavelet_NSD1000_LTP3LTP4_avg",help='Path to the folder containing wavelet files')
+    parser.add_argument('--model_folder', type=str, default="/root/fworkspace/ieeg_nsd/models")
+    parser.add_argument('--writer_folder', type=str, default="./runs")
     parser.add_argument('--train_size_ratio', type=float, default=0.8, help='Ratio of the dataset to be used for training')
-    parser.add_argument('--epoch', type=int, default=30)
-    parser.add_argument('--batch_size', type=int, default=32, help='Batch size for training')
+    parser.add_argument('--epoch', type=int, default=100)
+    parser.add_argument('--batch_size', type=int, default=16, help='Batch size for training')
     parser.add_argument('--learning_rate', type=float, default=0.001)
     
     args = parser.parse_args()
     
-    main(args.img_folder, args.mat_folder, args.model_folder, args.train_size_ratio, args.batch_size, args.epoch, args.learning_rate)
+    main(args.img_folder, args.mat_folder, args.model_folder, args.writer_folder, args.train_size_ratio, args.batch_size, args.epoch, args.learning_rate)
