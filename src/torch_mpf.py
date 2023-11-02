@@ -70,7 +70,7 @@ class Torch_FWRF(L.Module):
         self.b  = L.Parameter(T.tensor(np.full(fill_value=0.0, shape=(self.nv,), dtype=dtype), requires_grad=True))
         self.dl = []
         self.ul = []
-        print (self.nf, rf_rez, rf_rez)
+        #print (self.nf, rf_rez, rf_rez)
         for k,fm_rez in enumerate(self.fmaps_shapes):
             if fm_rez[2]>1:
                 d, u = downsampling(fm_rez[2], rf_rez)
@@ -79,17 +79,17 @@ class Torch_FWRF(L.Module):
 #                    self.ul += [T.tensor(u.astype(dtype), requires_grad=False).to(device),]
                     self.ul += [T.tensor(u.astype(dtype), requires_grad=False),]
                     self.register_buffer('sc%d'%k, self.ul[-1], persistent=False)
-                    if d<0: # downsample rf
-                        print ('rescale from', [rf_rez, rf_rez], 'to', fm_rez[2:4])
-                    elif d>0: # downsample fm
-                        print ('rescale from', fm_rez[2:4], 'to', [rf_rez, rf_rez])
+                    #if d<0: # downsample rf
+                        #print ('rescale from', [rf_rez, rf_rez], 'to', fm_rez[2:4])
+                    #elif d>0: # downsample fm
+                        #print ('rescale from', fm_rez[2:4], 'to', [rf_rez, rf_rez])
                 else:
                     self.ul += [None,]
-                    print ('native', fm_rez[2:4])
+                    #print ('native', fm_rez[2:4])
             else:
                 self.dl += [None,]
                 self.ul += [None,]
-                print ('singleton fmaps')
+                #print ('singleton fmaps')
               
     def forward(self, fmaps):
         phi = []
@@ -115,6 +115,7 @@ class Torch_FWRF(L.Module):
         Phi = T.cat(phi, dim=2)
         if self.post_nl is not None:
             Phi = self.post_nl(Phi)
+        Phi = Phi.to(self.w.device)
         vr = T.squeeze(T.bmm(Phi, T.unsqueeze(self.w,2))).t() + T.unsqueeze(self.b,0)
         # vr : [batch, nv]
         return vr

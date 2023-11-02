@@ -15,10 +15,11 @@ from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
 
-from models.eeg_predictor import alexnet_layerwiseFWRF_eeg
+from models.eeg_predictor import alexnet_layerwiseFWRF_eeg, alexnet_layerwise_pcareg_eeg
 
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
 
 class CustomDataset(Dataset):
     def __init__(self, img_folder, mat_folder, transform=None):
@@ -130,8 +131,8 @@ def main(img_folder, mat_folder, model_folder, writer_folder,train_size_ratio, b
     # Train a model for each position
     for i in range(0, target_shape_size):
         # Set up TensorBoard writer
-        if i%100 == 0:
-            writer = SummaryWriter(os.path.join(writer_folder,f'{i}_model'))  # 'runs' is a common directory name for TensorBoard logs
+        #if i%100 == 0:
+        writer = SummaryWriter(os.path.join(writer_folder,f'{i}_model'))  # 'runs' is a common directory name for TensorBoard logs
 
         #Each pixel in spetrum as a target
         position_targets = all_targets_train[:, i]
@@ -144,7 +145,8 @@ def main(img_folder, mat_folder, model_folder, writer_folder,train_size_ratio, b
         #print(">>>pixel data loaded")
 
         #Initialize training
-        model = alexnet_layerwiseFWRF_eeg(device)
+        #model = alexnet_layerwiseFWRF_eeg(device)
+        model = alexnet_layerwise_pcareg_eeg(device, batch_size, train_loader_position)
         model = model.to(device)
         print(">>>>>>Model loaded")
         # Dummy forward pass to initialize the readout layer
@@ -155,19 +157,21 @@ def main(img_folder, mat_folder, model_folder, writer_folder,train_size_ratio, b
         optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=learning_rate)
         criterion = nn.MSELoss()
         best_corr_coeff = float('-inf')
+        best_train_corr = float('-inf')
 
         for epoch in tqdm(range(num_epochs), desc="Epochs"):
             #training loop
             model.train()
             total_train_loss = 0
-            correlations = []
+            all_predictions = []
+            all_labels = []
             for batch_images, batch_labels in train_loader_position:
                 #images = images.view(images.size(0), -1)
                 # Move data to GPU if available
                 batch_images, batch_labels = batch_images.to(device), batch_labels.to(device)
                 
                 # Forward pass
-                predictions = model(batch_images)
+                predictions = model(batch_images).squeeze()
                 loss = criterion(predictions, batch_labels)
                 
                 # Backward pass and optimization
@@ -179,15 +183,16 @@ def main(img_folder, mat_folder, model_folder, writer_folder,train_size_ratio, b
 
                 # Compute correlation for the current batch and store
                 corr = pearson_correlation_coefficient(predictions.squeeze(), batch_labels.squeeze())
-                correlations.append(corr.item())
+                all_predictions.extend(predictions.squeeze().tolist())
+                all_labels.extend(batch_labels.squeeze().tolist())
 
             avg_train_loss = total_train_loss / len(train_loader_position)
-            train_avg_corr = sum(correlations) / len(correlations)
+            train_avg_corr = pearson_correlation_coefficient(torch.tensor(all_predictions), torch.tensor(all_labels))
             #print(f"Epoch [{epoch+1}/{num_epochs}], Training Loss: {avg_train_loss:.4f}, Avg Correlation: {avg_corr:.4f}")
 
-            if i%100 == 0:
-                writer.add_scalar('Training Loss', avg_train_loss, epoch)
-                writer.add_scalar('Avg training Correlation', train_avg_corr, epoch)
+            #if i%100 == 0:
+            writer.add_scalar('Training Loss', avg_train_loss, epoch)
+            writer.add_scalar('Avg training Correlation', train_avg_corr, epoch)
             
              # Validation Loop
             model.eval()
@@ -211,20 +216,21 @@ def main(img_folder, mat_folder, model_folder, writer_folder,train_size_ratio, b
             
             avg_val_loss = total_val_loss / len(val_loader_position)
             avg_corr = pearson_correlation_coefficient(torch.tensor(all_predictions), torch.tensor(all_labels))
-            print(f"Position [{i + 1}/{target_shape_size}],Epoch [{epoch+1}/{num_epochs}], Validation Loss: {avg_val_loss:.4f}, Avg Correlation: {avg_corr:.4f}")
+            #print(f"Position [{i + 1}/{target_shape_size}],Epoch [{epoch+1}/{num_epochs}], Training Loss: {avg_train_loss:.4f}, Validation Loss: {avg_val_loss:.4f}, Avg Correlation: {avg_corr:.4f}")
             
-            if i%100 == 0:
-                writer.add_scalar('Validation Loss', avg_val_loss, epoch)
-                writer.add_scalar('Avg Validaton Correlation', avg_corr, epoch)
-                writer.close
+            #if i%100 == 0:
+            writer.add_scalar('Validation Loss', avg_val_loss, epoch)
+            writer.add_scalar('Avg Validaton Correlation', avg_corr, epoch)
+            writer.close
             if avg_corr > best_corr_coeff:
                 best_corr_coeff = avg_corr
+                best_train_corr = train_avg_corr
                 torch.save(model.state_dict(), os.path.join(model_folder, f"{i}_best.pth"))
                 #print("Saved best model with correlation coefficient:", best_corr_coeff)
 
 
         x_axis, y_axis = get_coordinates(i, target_shape[1])
-        print(f"Position [{i + 1}/{target_shape_size}], Coordinates: ({x_axis},{y_axis}), Avg Training Correlation: {train_avg_corr:.4f}, Avg Validation Correlation: {avg_corr:.4f}")
+        print(f"Position [{i + 1}/{target_shape_size}], Coordinates: ({x_axis},{y_axis}), Training Correlation: {best_train_corr:.4f}, Best Validation Correlation: {best_corr_coeff:.4f}")
         # Save the final model
         torch.save(model.state_dict(), os.path.join(model_folder, f"{i}_final.pth"))
         #print("Saved model from the final epoch.")
@@ -235,7 +241,7 @@ def main(img_folder, mat_folder, model_folder, writer_folder,train_size_ratio, b
             "coordinate": (x_axis, y_axis)  
         }
         if (i+1)%500==0:
-            with open("./best_corrs_avg.pkl", "wb") as f:
+            with open("./best_corrs_30.pkl", "wb") as f:
                 pickle.dump(best_corrs, f)
 
 
