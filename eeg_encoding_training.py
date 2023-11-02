@@ -129,7 +129,7 @@ def main(img_folder, mat_folder, model_folder, writer_folder,train_size_ratio, b
     best_corrs = {}
 
     # Train a model for each position
-    for i in range(0, target_shape_size):
+    for i in range(43500, target_shape_size):
         # Set up TensorBoard writer
         #if i%100 == 0:
         writer = SummaryWriter(os.path.join(writer_folder,f'{i}_model'))  # 'runs' is a common directory name for TensorBoard logs
@@ -216,7 +216,7 @@ def main(img_folder, mat_folder, model_folder, writer_folder,train_size_ratio, b
             
             avg_val_loss = total_val_loss / len(val_loader_position)
             avg_corr = pearson_correlation_coefficient(torch.tensor(all_predictions), torch.tensor(all_labels))
-            #print(f"Position [{i + 1}/{target_shape_size}],Epoch [{epoch+1}/{num_epochs}], Training Loss: {avg_train_loss:.4f}, Validation Loss: {avg_val_loss:.4f}, Avg Correlation: {avg_corr:.4f}")
+            print(f"Position [{i + 1}/{target_shape_size}],Epoch [{epoch+1}/{num_epochs}], Training Loss: {avg_train_loss:.4f}, Validation Loss: {avg_val_loss:.4f}, Avg Correlation: {avg_corr:.4f}")
             
             #if i%100 == 0:
             writer.add_scalar('Validation Loss', avg_val_loss, epoch)
@@ -241,20 +241,20 @@ def main(img_folder, mat_folder, model_folder, writer_folder,train_size_ratio, b
             "coordinate": (x_axis, y_axis)  
         }
         if (i+1)%500==0:
-            with open("./best_corrs_30.pkl", "wb") as f:
+            with open("./best_corrs_30_filter.pkl", "wb") as f:
                 pickle.dump(best_corrs, f)
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--img_folder', type=str, default="/root/fdata/ieeg_nsd/shared1000",help='Path to the folder containing images')
-    parser.add_argument('--mat_folder', type=str, default="/root/fdata/ieeg_nsd/wavelet_NSD1000_LTP3LTP4_avg",help='Path to the folder containing wavelet files')
+    parser.add_argument('--mat_folder', type=str, default="/root/fdata/ieeg_nsd/wavelet_NSD1000_LTP3LTP4_0",help='Path to the folder containing wavelet files')
     parser.add_argument('--model_folder', type=str, default="/root/fworkspace/ieeg_nsd/models")
     parser.add_argument('--writer_folder', type=str, default="./runs")
     parser.add_argument('--train_size_ratio', type=float, default=0.8, help='Ratio of the dataset to be used for training')
     parser.add_argument('--epoch', type=int, default=100)
     parser.add_argument('--batch_size', type=int, default=16, help='Batch size for training')
-    parser.add_argument('--learning_rate', type=float, default=0.001)
+    parser.add_argument('--learning_rate', type=float, default=0.0001)
     
     args = parser.parse_args()
     

@@ -96,8 +96,9 @@ class alexnet_layerwise_pcareg_eeg(nn.Module):
         self.feature_filter, *_ = filter_dnn_feature_maps(data, self.feature_extractor, fmap_max=512, concatenate=False)
         
     def forward(self, x):
-        #_pca_fmaps_fn = pca_fmaps(self.feature_filter, 2, x, batchsize=self.batch_size, device=self.device)
-        x = self.feature_extractor(x)
+        _pca_fmaps_fn = pca_fmaps(self.feature_filter, 2, x, batchsize=self.batch_size, device=self.device)
+        x=_pca_fmaps_fn(x)
+        #x = self.feature_filter(x)
         self.readout = Torch_FWRF(x, rf_rez=1, nv=1, pre_nl=None, post_nl=None, dtype=np.float32).to(self.device)
 
         return self.readout(x)
