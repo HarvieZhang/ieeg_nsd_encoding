@@ -129,7 +129,7 @@ def main(img_folder, mat_folder, model_folder, writer_folder,train_size_ratio, b
     best_corrs = {}
 
     # Train a model for each position
-    for i in range(43500, target_shape_size):
+    for i in range(42385, target_shape_size):
         # Set up TensorBoard writer
         #if i%100 == 0:
         writer = SummaryWriter(os.path.join(writer_folder,f'{i}_model'))  # 'runs' is a common directory name for TensorBoard logs
@@ -145,8 +145,8 @@ def main(img_folder, mat_folder, model_folder, writer_folder,train_size_ratio, b
         #print(">>>pixel data loaded")
 
         #Initialize training
-        #model = alexnet_layerwiseFWRF_eeg(device)
-        model = alexnet_layerwise_pcareg_eeg(device, batch_size, train_loader_position)
+        model = alexnet_layerwiseFWRF_eeg(device)
+        #model = alexnet_layerwise_pcareg_eeg(device, batch_size, train_loader_position)
         model = model.to(device)
         print(">>>>>>Model loaded")
         # Dummy forward pass to initialize the readout layer
@@ -154,7 +154,8 @@ def main(img_folder, mat_folder, model_folder, writer_folder,train_size_ratio, b
         _ = model(dummy_input)
 
         # Now initialize the optimizer
-        optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=learning_rate)
+        optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=learning_rate, weight_decay=1e-5)
+        #scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=50, gamma=0.1)
         criterion = nn.MSELoss()
         best_corr_coeff = float('-inf')
         best_train_corr = float('-inf')
@@ -189,6 +190,7 @@ def main(img_folder, mat_folder, model_folder, writer_folder,train_size_ratio, b
             avg_train_loss = total_train_loss / len(train_loader_position)
             train_avg_corr = pearson_correlation_coefficient(torch.tensor(all_predictions), torch.tensor(all_labels))
             #print(f"Epoch [{epoch+1}/{num_epochs}], Training Loss: {avg_train_loss:.4f}, Avg Correlation: {avg_corr:.4f}")
+            #scheduler.step()
 
             #if i%100 == 0:
             writer.add_scalar('Training Loss', avg_train_loss, epoch)
@@ -216,7 +218,7 @@ def main(img_folder, mat_folder, model_folder, writer_folder,train_size_ratio, b
             
             avg_val_loss = total_val_loss / len(val_loader_position)
             avg_corr = pearson_correlation_coefficient(torch.tensor(all_predictions), torch.tensor(all_labels))
-            print(f"Position [{i + 1}/{target_shape_size}],Epoch [{epoch+1}/{num_epochs}], Training Loss: {avg_train_loss:.4f}, Validation Loss: {avg_val_loss:.4f}, Avg Correlation: {avg_corr:.4f}")
+            #print(f"Position [{i + 1}/{target_shape_size}],Epoch [{epoch+1}/{num_epochs}], Training Loss: {avg_train_loss:.4f}, Validation Loss: {avg_val_loss:.4f}, Avg Correlation: {avg_corr:.4f}")
             
             #if i%100 == 0:
             writer.add_scalar('Validation Loss', avg_val_loss, epoch)
@@ -240,8 +242,8 @@ def main(img_folder, mat_folder, model_folder, writer_folder,train_size_ratio, b
             "corr": best_corr_coeff,
             "coordinate": (x_axis, y_axis)  
         }
-        if (i+1)%500==0:
-            with open("./best_corrs_30_filter.pkl", "wb") as f:
+        if (i+1)%100==0:
+            with open("./best_corrs_29_filter.pkl", "wb") as f:
                 pickle.dump(best_corrs, f)
 
 

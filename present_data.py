@@ -8,7 +8,7 @@ import re
 results = {}
 
 # Open the text file and read its contents
-with open("output_30", "r") as file:
+with open("output_29", "r") as file:
     for line in file:
         # Use regular expressions to extract coordinates and validation correlation
         coord_match = re.search(r"Coordinates: \((\d+),(\d+)\)", line)
@@ -20,6 +20,18 @@ with open("output_30", "r") as file:
             correlation = float(corr_match.group(1))
             results[(x, y)] = correlation
 
+# Open the text file and read its contents
+with open("output_29_re", "r") as file:
+    for line in file:
+        # Use regular expressions to extract coordinates and validation correlation
+        coord_match = re.search(r"Coordinates: \((\d+),(\d+)\)", line)
+        corr_match = re.search(r"Best Validation Correlation: (-?\d+\.\d+)", line)
+
+        # If both matches are found, store the data in the dictionary
+        if coord_match and corr_match:
+            x, y = int(coord_match.group(1)), int(coord_match.group(2))
+            correlation = float(corr_match.group(1))
+            results[(x, y)] = correlation
 
 
 
@@ -35,22 +47,24 @@ correlations = np.array(correlations)[sorted_indices]
 # Create a 2D array with correlations
 heatmap_data = correlations[np.newaxis, :]
 
+# Plot histogram of correlations
+plt.figure(figsize=(10, 5))
+plt.hist(correlations, bins=30, color='blue', alpha=0.7, edgecolor='black')
+plt.xlabel('Correlation')
+plt.ylabel('Number of Points')
+plt.title('Distribution of Prediction Correlations')
+plt.tight_layout()
+plt.close()
+
+plt.savefig("corr_wavelet_distribution_29.png", dpi=300, bbox_inches='tight')
+
+
 # Plot histogram
 plt.figure(figsize=(10, 5))
 plt.bar(times, correlations, width=1.6, color='blue', alpha=0.7)
-
-
-# Plot histogram of correlations
-#plt.figure(figsize=(10, 5))
-#plt.hist(correlations, bins=30, color='blue', alpha=0.7, edgecolor='black')
-#plt.xlabel('Correlation')
-#plt.ylabel('Number of Points')
-#plt.title('Distribution of Prediction Correlations')
-#plt.tight_layout()
-
 # Mark "present image" at x=960
-plt.axvline(x=480, color='red', linestyle='--')
-plt.annotate('present image', xy=(480, 1), xytext=(960, 1.05),
+plt.axvline(x=960, color='red', linestyle='--')
+plt.annotate('present image', xy=(960, 1), xytext=(960, 1.05),
              arrowprops=dict(facecolor='red', shrink=0.05),
              horizontalalignment='center', verticalalignment='top',
              color='red')
@@ -69,4 +83,5 @@ plt.tight_layout()
 #plt.title('Prediction Correlation in 81.6404Hz')
 #plt.tight_layout()
 
-plt.savefig("corr_wavelet_distribution.png", dpi=300, bbox_inches='tight')
+plt.savefig("corr_wavelet_histogram_29.png", dpi=300, bbox_inches='tight')
+plt.close()

@@ -139,6 +139,7 @@ class Torch_LayerwiseFWRF(L.Module):
         #self.b  = L.Parameter(T.tensor(np.full(fill_value=0.0, shape=(self.nv,), dtype=dtype), requires_grad=True))
         self.w  = L.Parameter(T.tensor(np.random.normal(0, 0.01, size=(self.nv, self.nf)).astype(dtype=dtype), requires_grad=True))
         self.b  = L.Parameter(T.tensor(np.random.normal(0, 0.01, size=(self.nv,)).astype(dtype=dtype), requires_grad=True))
+        self.dropout = L.Dropout(p=0.8, inplace=True)
         
     def forward(self, fmaps):
         phi = []
@@ -154,6 +155,8 @@ class Torch_LayerwiseFWRF(L.Module):
         Phi = T.cat(phi, dim=2)
         if self.post_nl is not None:
             Phi = self.post_nl(Phi)
+        if self.training:  # Only apply dropout during training
+            Phi = self.dropout(Phi)
         vr = T.squeeze(T.bmm(Phi, T.unsqueeze(self.w,2))).t() + T.unsqueeze(self.b,0)
         return vr
     
